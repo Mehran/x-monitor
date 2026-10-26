@@ -14,8 +14,9 @@ import { helpView, listView, menuView, usersView } from '../lib/views.js';
 import * as ui from '../lib/ui.js';
 import { esc, normalizeUsername } from '../lib/util.js';
 
-const UNAUTHORIZED_TEXT =
-  '🚫 You are not Authorized\n\nSend your CHAT_ID to Mehran to gain access to the bot.';
+// Unauthorized senders get their own chat id back so they can forward it to Mehran.
+const unauthorizedText = (chatId) =>
+  `🚫 You are not Authorized. Your CHAT_ID is <code>${chatId}</code>. Send this CHAT_ID to Mehran to gain access.`;
 
 const ADMIN_ONLY_TEXT = '🔒 This is for admins only.';
 
@@ -32,7 +33,7 @@ export default async function (message) {
 
   if (!(await access.isAuthorized(chatId))) {
     try {
-      await send(chatId, UNAUTHORIZED_TEXT);
+      await send(chatId, unauthorizedText(chatId));
     } catch {
       // Chat may not exist; ignore.
     }
