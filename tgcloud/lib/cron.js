@@ -1,6 +1,7 @@
 import { fetch } from 'sdk';
 import { CRON_URL } from './config.js';
 import { listAccounts } from './accounts.js';
+import { listRecipientChatIds } from './access.js';
 import { getState } from './state.js';
 
 /**
@@ -30,14 +31,64 @@ export async function syncCronAccounts(usernames) {
   }
 }
 
-/** Push the current enabled accounts. Fire-and-forget friendly. */
+/** Push the current enabled accounts and recipients. Fire-and-forget friendly. */
 export async function syncCronFromStore() {
   try {
     const accounts = await listAccounts();
     const enabled = accounts.filter((a) => a.enabled).map((a) => a.username);
-    return await syncCronAccounts(enabled);
+    const result = await syncCronAccounts(enabled);
+    // Recipients decide which chats the cron posts videos to.
+    await syncCronRecipients(await listRecipientChatIds());
+    return result;
   } catch (error) {
     console.error('cron account sync failed', error);
+    return { ok: false, reason: String(error?.message || error) };
+  }
+}
+
+/** Push the list of chats that should receive videos. */
+export async function syncCronRecipients(chatIds) {
+  if (!CRON_URL) return { ok: false, reason: 'CRON_URL is not configured' };
+
+  const key = await getState('cron_admin_key', null);
+  if (!key) return { ok: false, reason: 'no admin key saved yet — send /cronkey <key>' };
+
+  try {
+    const res = await fetch(`${CRON_URL}/recipients?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(chatIds),
+    });
+    if (!res.ok) return { ok: false, reason: `cron returned ${res.status}` };
+    return { ok: true };
+  } catch (error) {
+    console.error('cron recipient sync failed', error);
+    return { ok: false, reason: String(error?.message || error) };
+  }
+}
+
+/**
+ * Ask the cron to send a freshly authorized chat the newest videos the group
+ * has already received, so a new user starts with content. The cron schedules
+ * the sends in the background and answers at once. `dry` returns the pick
+ * without sending (for testing).
+ */
+export async function welcomeChat(chatId, count, dry = false) {
+  if (!CRON_URL) return { ok: false, reason: 'CRON_URL is not configured' };
+
+  const key = await getState('cron_admin_key', null);
+  if (!key) return { ok: false, reason: 'no admin key saved yet — send /cronkey <key>' };
+
+  try {
+    const res = await fetch(`${CRON_URL}/welcome?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: Number(chatId), count, dry }),
+    });
+    if (!res.ok) return { ok: false, reason: `cron returned ${res.status}` };
+    return await res.json();
+  } catch (error) {
+    console.error('cron welcome failed', error);
     return { ok: false, reason: String(error?.message || error) };
   }
 }

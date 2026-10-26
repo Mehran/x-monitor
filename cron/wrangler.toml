@@ -1,0 +1,25 @@
+name = "topav-monitor"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Every 10 minutes. Adjust here if you want a different cadence.
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Seen-state and per-account pointers (one KV key, written only on change).
+[[kv_namespaces]]
+binding = "STATE"
+id = "7a4cda5b140c4ccd93ac057014e33a61"
+
+[vars]
+OWNER_CHAT_ID = "779298050"
+# Fallback recipient list (KV "recipients", pushed by the bot, wins when set).
+# Owner first, then viewers — every chat here gets each new video.
+RECIPIENTS = "779298050,8766696683"
+# Comma-separated fallback list; the KV "accounts" key wins when it is set.
+ACCOUNTS = "2046vaggelis,only_javs,p888rjav,roshytv,topav,waifussjav,xlovelyhub"
+
+# Secrets (set with `npx wrangler secret put <NAME>`, never commit them):
+#   BOT_TOKEN  — @MehranHornyBot token
+#   ADMIN_KEY  — any long random string, gates the /status and /run endpoints

@@ -1,4 +1,4 @@
-import { AUTO_CHECK_INTERVAL, AUTO_CHECK_MAX_ACCOUNTS, PLATFORM_MONITORING } from './config.js';
+import { AUTO_CHECK_INTERVAL, AUTO_CHECK_MAX_ACCOUNTS, OWNER_CHAT_ID, PLATFORM_MONITORING } from './config.js';
 import { esc, fmtAgo, truncate } from './util.js';
 
 export function mainMenuText({ total, active, sent, lastCheck }) {
@@ -14,9 +14,55 @@ export function mainMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: '➕ Add account', callback_data: 'add' }, { text: '🔄 Check now', callback_data: 'check' }],
-      [{ text: '📋 Accounts', callback_data: 'list' }, { text: 'ℹ️ Help', callback_data: 'help' }],
+      [{ text: '📋 Accounts', callback_data: 'list' }, { text: '👥 Users', callback_data: 'users' }],
+      [{ text: 'ℹ️ Help', callback_data: 'help' }],
     ],
   };
+}
+
+/** The reduced menu a non-admin viewer gets: look, don't touch. */
+export function viewerKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: '📋 Accounts', callback_data: 'list' }],
+      [{ text: 'ℹ️ Help', callback_data: 'help' }],
+    ],
+  };
+}
+
+export function usersText(rows) {
+  if (!rows.length) return '👥 <b>Authorized chats</b>\n\nNo authorized chats yet.';
+  const lines = rows.map((row) => {
+    const badge = row.chatId === OWNER_CHAT_ID ? '👑' : row.isAdmin ? '🛡' : '👤';
+    const role = row.chatId === OWNER_CHAT_ID ? 'owner' : row.isAdmin ? 'admin' : 'viewer';
+    return `${badge} <code>${row.chatId}</code> — ${role}`;
+  });
+  return (
+    `👥 <b>Authorized chats</b> (${rows.length})\n\n${lines.join('\n')}\n\n` +
+    '👑 owner and 🛡 admins can manage accounts. 👤 viewers can only look around.'
+  );
+}
+
+export function usersKeyboard(rows) {
+  const keyboard = rows
+    .filter((row) => row.chatId !== OWNER_CHAT_ID)
+    .map((row) => {
+      const buttons = [
+        {
+          text: row.isAdmin ? '⬇️ Make viewer' : '⬆️ Make admin',
+          callback_data: `ua:${row.chatId}`,
+        },
+      ];
+      if (!row.fixed) {
+        buttons.push({ text: '🗑 Remove', callback_data: `ud:${row.chatId}` });
+      }
+      return buttons;
+    });
+  keyboard.push([
+    { text: '➕ Add chat ID', callback_data: 'addchat' },
+    { text: '⬅️ Menu', callback_data: 'menu' },
+  ]);
+  return { inline_keyboard: keyboard };
 }
 
 export function accountsText(accounts) {
@@ -29,14 +75,18 @@ export function accountsText(accounts) {
   return `📋 <b>Accounts</b> (${accounts.length})\n\n${lines.join('\n')}\n\nTap one to manage it.`;
 }
 
-export function accountsKeyboard(accounts) {
+export function accountsKeyboard(accounts, admin = true) {
   const rows = accounts.map((account) => [
     {
       text: `${account.enabled ? '✅' : '⏸'} @${account.username}`,
       callback_data: `a:${account.id}`,
     },
   ]);
-  rows.push([{ text: '➕ Add account', callback_data: 'add' }, { text: '⬅️ Menu', callback_data: 'menu' }]);
+  rows.push(
+    admin
+      ? [{ text: '➕ Add account', callback_data: 'add' }, { text: '⬅️ Menu', callback_data: 'menu' }]
+      : [{ text: '⬅️ Menu', callback_data: 'menu' }]
+  );
   return { inline_keyboard: rows };
 }
 
@@ -55,7 +105,12 @@ export function accountText(account) {
   return lines.join('\n');
 }
 
-export function accountKeyboard(account) {
+export function accountKeyboard(account, admin = true) {
+  if (!admin) {
+    return {
+      inline_keyboard: [[{ text: '⬅️ Accounts', callback_data: 'list' }]],
+    };
+  }
   return {
     inline_keyboard: [
       [
@@ -103,6 +158,40 @@ export function checkSummary(results) {
   return `✅ <b>Check complete</b>\n\n${lines.join('\n')}`;
 }
 
+export function statusText({ total, active, sent, lastCheck, accounts, cron, cronUrl }) {
+  const lines = [
+    '📊 <b>Status</b>',
+    '',
+    `📺 Accounts: <b>${total}</b> (${active} active)`,
+    `🎞 Videos delivered: <b>${sent}</b>`,
+    `🕒 Last check: <b>${fmtAgo(lastCheck)}</b>`,
+  ];
+
+  if (cronUrl) {
+    if (cron?.lastRun) {
+      const when = fmtAgo(new Date(cron.lastRun));
+      lines.push(`☁️ Cron last run: <b>${when}</b> · ${cron.seen ?? 0} video(s) remembered`);
+    } else {
+      lines.push('☁️ Cron: <i>no admin key saved yet — send /cronkey &lt;key&gt;</i>');
+    }
+  }
+
+  if (accounts.length) {
+    lines.push('', '<b>Accounts</b>');
+    for (const account of accounts) {
+      const error = account.lastError
+        ? `\n   <i>${esc(truncate(account.lastError, 100))}</i>`
+        : '';
+      lines.push(
+        `${account.enabled ? '✅' : '⏸'} <b>@${esc(account.username)}</b> — ` +
+          `${Number(account.sentCount) || 0} sent · checked ${fmtAgo(account.checkedAt)}${error}`
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
 export function workerMonitoringText() {
   return (
     `⏱ <b>Monitoring runs on the Cloudflare cron</b>\n\n` +
@@ -112,17 +201,28 @@ export function workerMonitoringText() {
   );
 }
 
-export function helpText() {
+export function helpText(admin = true) {
   const minutes = Math.round(AUTO_CHECK_INTERVAL / 60);
+  const commands = admin
+    ? `<b>Commands</b>\n` +
+      `/start, /menu — main menu\n` +
+      `/add @username — start monitoring an account\n` +
+      `/accounts — view and manage accounts\n` +
+      `/check — look for new videos right now\n` +
+      `/status — accounts and delivery stats\n` +
+      `/users — manage who may use the bot\n` +
+      `/help — this message\n\n`
+    : `<b>Commands</b>\n` +
+      `/start, /menu — main menu\n` +
+      `/accounts — view monitored accounts\n` +
+      `/status — delivery stats\n` +
+      `/help — this message\n\n` +
+      `You have <b>view-only</b> access — ask an admin to add or change accounts.\n\n`;
+
   return (
     `ℹ️ <b>How this bot works</b>\n\n` +
-    `It watches X/Twitter accounts you add and sends every new video to this chat as an mp4 with a thumbnail.\n\n` +
-    `<b>Commands</b>\n` +
-    `/add @username — start monitoring an account\n` +
-    `/accounts — view and manage accounts\n` +
-    `/check — look for new videos right now\n` +
-    `/status — accounts and delivery stats\n` +
-    `/help — this message\n\n` +
+    `It watches X/Twitter accounts and sends every new video to the owner's chat as an mp4 with a thumbnail.\n\n` +
+    commands +
     `<b>Notes</b>\n` +
     `• Adding an account starts from its latest post, so old videos are not re-sent.\n` +
     `• Use ⬇️ Last 10 videos for the recent backlog.\n` +

@@ -5,6 +5,39 @@ This file is auto-loaded by Claude Code, Cursor, and similar tools — keep it s
 and true. For the full SDK reference (db, Bot API, fetch), see
 [docs/tgcloud-sdk.md](docs/tgcloud-sdk.md).
 
+## What this bot does (project-specific)
+
+A private X/Twitter video monitor for chat `779298050`. Accounts live in the
+`accounts` table, delivered videos in `videos` (unique on tweet+media id), and
+keys such as the pending input and check lock in `state`. `lib/monitor.js` polls
+`api.fxtwitter.com/2/profile/<user>/statuses`, downloads MP4s with HTTP range
+requests (the platform caps one response at 30 MB) and uploads them with a
+thumbnail. Videos over the Bot API's 50 MB upload limit become a poster plus a
+`▶️ Play` button pointing at the original MP4 (Telegram streams it; the platform
+cannot upload more than ~50 MB per request, so a hosted copy is not possible).
+There is **no cron** on this platform: checks are triggered by incoming messages
+or button taps (throttled in `lib/config.js`) and by `/check`. For real 24/7
+checking, `cron/` is a Cloudflare Worker with a Cron Trigger that polls and posts
+on its own. `MONITORING_MODE` in `lib/config.js` picks which side sends
+(`'platform'` or `'worker'`, currently the latter) so the two never double-post,
+and `lib/cron.js` pushes the bot's enabled account list **and the recipient chat
+IDs** to the worker whenever they change (so owner *and* viewers get each video).
+See README.md.
+
+**Roles.** `OWNER_CHAT_ID` (779298050) is the full admin. `LIMITED_CHAT_IDS` in
+`lib/config.js` (8766696683) may only *view* menus/accounts/status. Any other
+chat must be authorized by the owner from the 👥 Users screen; access lives in
+the `authorized_chats` table (`chatId` + `isAdmin`), enforced by `lib/access.js`.
+Every account-mutating command and button is admin-only.
+
+**Reposts: never filter them by tweet id.** A repost is ordered by when it was
+repasted but carries the ORIGINAL tweet's id, so it is always "older" than the
+newest id on the page — an id pointer silently drops every repost (a repost-only
+account delivers nothing). Both sides therefore decide "already delivered" from
+the video record (`videos` rows here, the `seen` key in the worker's KV state),
+keyed `(tweet_id, media_id)`, and the first check after adding an account records
+its whole timeline as known so the archive is not dumped.
+
 ## What this project is
 
 A **Telegram Mini App bot** running on Telegram's serverless platform. You write

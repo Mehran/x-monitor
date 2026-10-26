@@ -1,7 +1,13 @@
 // Everything tunable lives here.
 
-// Only this chat may talk to the bot. Everything else is ignored silently.
+// Only this chat is the full admin (owner). Everything else is ignored unless
+// it is an authorized chat (see LIMITED_CHAT_IDS and the authorized_chats table).
 export const OWNER_CHAT_ID = 779298050;
+
+// Chats that may open the menus and look around, but cannot add, check, remove
+// accounts or manage users. The owner can promote any of them to admin from the
+// 👥 Users screen; that is stored in the database.
+export const LIMITED_CHAT_IDS = [8766696683];
 
 // Cloudflare cron worker (cron/) — the 24/7 scheduler. Adding, renaming,
 // pausing or deleting an account here pushes the enabled list to it.
@@ -41,6 +47,10 @@ export const MIRROR_ENABLED = false;
 // How many timeline pages (20 tweets each) a single check may walk.
 export const MAX_TIMELINE_PAGES = 5;
 export const MAX_BACKFILL_VIDEOS = 10;
+
+// When the owner authorizes a new chat, the cron sends it this many of the most
+// recent videos so it starts with something to watch.
+export const WELCOME_VIDEO_COUNT = 5;
 
 // Ignore a check that started less than this many seconds ago (other invocation).
 export const CHECK_LOCK_SECONDS = 240;
